@@ -1,0 +1,1 @@
+# Spielsammlung-mit-Grundlage-von-Skartkarten
