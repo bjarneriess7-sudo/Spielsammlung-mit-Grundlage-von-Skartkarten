@@ -1,15 +1,16 @@
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
 public class RommeGui extends JFrame {
 
     private final UserAccount currentUser;
+    private final JFrame parentMenu;
     private final Deck drawPile;
     private final List<Card> discardPile;
 
@@ -32,11 +33,25 @@ public class RommeGui extends JFrame {
     private JButton layOffBtn;
     private JButton discardBtn;
 
+    public RommeGui(JFrame parentMenu) {
+        this(parentMenu, null);
+    }
+
     public RommeGui(UserAccount user) {
+        this(null, user);
+    }
+
+    public RommeGui() {
+        this(null, null);
+    }
+
+    public RommeGui(JFrame parentMenu, UserAccount user) {
         super("Rommé - Angemeldet als: " + (user != null ? user.getUsername() : "Gast"));
+        this.parentMenu = parentMenu;
         this.currentUser = user;
 
         this.drawPile = new Deck();
+        this.drawPile.initializeStandard52Deck();
         this.drawPile.shuffle();
         this.discardPile = new ArrayList<>();
         this.playerHand = new ArrayList<>();
@@ -53,101 +68,114 @@ public class RommeGui extends JFrame {
 
     private void initGame() {
         try {
-            // 10 Karten für jeden Spieler austeilen
             for (int i = 0; i < 10; i++) {
                 playerHand.add(drawPile.drawCard());
                 botHand.add(drawPile.drawCard());
             }
-            // Erste Karte auf den Ablagestapel
             discardPile.add(drawPile.drawCard());
         } catch (EmptyDeckException e) {
-            JOptionPane.showMessageDialog(this, "Fehler beim Initialisieren des Kartendecks.");
+            JOptionPane.showMessageDialog(this, "Fehler beim Initialisieren des Decks.");
         }
         sortHand(playerHand);
     }
 
     private void initUI() {
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setSize(1100, 750);
+        setSize(1200, 800);
         setLocationRelativeTo(null);
-        setLayout(new BorderLayout(10, 10));
-        getContentPane().setBackground(new Color(34, 112, 60));
+        setResizable(true);
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        setLayout(new BorderLayout(15, 15));
+        getContentPane().setBackground(new Color(24, 105, 52));
 
-        // Oberes Panel: Info und Menü-Rückkehr
-        JPanel topPanel = new JPanel(new BorderLayout());
+        // 1. Top Panel (Menüleiste & Status)
+        JPanel topPanel = new JPanel(new BorderLayout(15, 0));
         topPanel.setOpaque(false);
-        JButton backBtn = new JButton("Zurück zum Hauptmenü");
-        backBtn.addActionListener(e -> {
-            new MainMenu(currentUser).setVisible(true);
-            dispose();
-        });
-        statusLabel = new JLabel("Willkommen! Ziehe eine Karte vom Deck oder Ablagestapel.", SwingConstants.CENTER);
-        statusLabel.setForeground(Color.WHITE);
-        statusLabel.setFont(new Font("SansSerif", Font.BOLD, 15));
+        topPanel.setBorder(new EmptyBorder(12, 20, 10, 20));
+
+        JButton backBtn = new JButton("⬅ Zurück zum Hauptmenü");
+        backBtn.setFont(new Font("SansSerif", Font.BOLD, 13));
+        backBtn.setBackground(new Color(40, 48, 62));
+        backBtn.setForeground(Color.WHITE);
+        backBtn.setFocusPainted(false);
+        backBtn.addActionListener(e -> returnToMenu());
+
+        statusLabel = new JLabel("Schritt 1: Ziehe eine Karte vom Nachzieh- oder Ablagestapel!", SwingConstants.CENTER);
+        statusLabel.setForeground(new Color(255, 235, 120));
+        statusLabel.setFont(new Font("SansSerif", Font.BOLD, 16));
+
         topPanel.add(backBtn, BorderLayout.WEST);
         topPanel.add(statusLabel, BorderLayout.CENTER);
         add(topPanel, BorderLayout.NORTH);
 
-        // Mittleres Panel: Stapel links und gemeldete Kombinationen rechts
-        JPanel middleContainer = new JPanel(new BorderLayout(20, 20));
+        // 2. Middle Panel (Feste Stapel-Box links + Meldungsbereich rechts)
+        JPanel middleContainer = new JPanel(new BorderLayout(25, 0));
         middleContainer.setOpaque(false);
-        middleContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        middleContainer.setBorder(new EmptyBorder(10, 25, 10, 25));
 
-        // Stapel (Nachzieh- & Ablagestapel)
-        JPanel pilesPanel = new JPanel(new GridLayout(2, 1, 10, 10));
-        pilesPanel.setOpaque(false);
-        drawDeckBtn = new JButton("Deck (" + drawPile.size() + ")");
-        drawDeckBtn.setPreferredSize(new Dimension(130, 80));
-        drawDeckBtn.setBackground(new Color(41, 128, 185));
-        drawDeckBtn.setForeground(Color.WHITE);
+        // Stapel in fixer Größe (kein vertikales Verzerren)
+        JPanel pilesWrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 15));
+        pilesWrapper.setOpaque(false);
+        pilesWrapper.setPreferredSize(new Dimension(170, 360));
+
+        JPanel pilesBox = new JPanel(new GridLayout(2, 1, 0, 20));
+        pilesBox.setOpaque(false);
+
+        drawDeckBtn = createCardPileButton("Deck", new Color(30, 70, 140));
         drawDeckBtn.addActionListener(e -> playerDrawFromDeck());
 
-        drawDiscardBtn = new JButton(getDiscardPileTopText());
-        drawDiscardBtn.setPreferredSize(new Dimension(130, 80));
-        drawDiscardBtn.setBackground(new Color(230, 126, 34));
-        drawDiscardBtn.setForeground(Color.WHITE);
+        drawDiscardBtn = createCardPileButton("Ablage", new Color(190, 80, 25));
         drawDiscardBtn.addActionListener(e -> playerDrawFromDiscard());
 
-        pilesPanel.add(drawDeckBtn);
-        pilesPanel.add(drawDiscardBtn);
-        middleContainer.add(pilesPanel, BorderLayout.WEST);
+        pilesBox.add(drawDeckBtn);
+        pilesBox.add(drawDiscardBtn);
+        pilesWrapper.add(pilesBox);
+        middleContainer.add(pilesWrapper, BorderLayout.WEST);
 
-        // Gemeldete Karten
+        // Auslagefeld
         centerMeldsPanel = new JPanel();
         centerMeldsPanel.setLayout(new BoxLayout(centerMeldsPanel, BoxLayout.Y_AXIS));
-        centerMeldsPanel.setBackground(new Color(24, 85, 45));
+        centerMeldsPanel.setBackground(new Color(18, 75, 38));
+
         JScrollPane meldScroll = new JScrollPane(centerMeldsPanel);
         meldScroll.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(Color.WHITE), "Tischablagen (Meldungen)", 0, 0, null, Color.WHITE));
+                BorderFactory.createLineBorder(new Color(255, 255, 255, 180), 2),
+                " Tischablagen / Meldungen (mind. 30 Punkte) ",
+                0, 0, new Font("SansSerif", Font.BOLD, 14), Color.WHITE));
         meldScroll.setOpaque(false);
         meldScroll.getViewport().setOpaque(false);
         middleContainer.add(meldScroll, BorderLayout.CENTER);
 
         add(middleContainer, BorderLayout.CENTER);
 
-        // Unteres Panel: Handkarten und Aktionen
-        JPanel bottomContainer = new JPanel(new BorderLayout(5, 5));
+        // 3. Bottom Panel (Handkarten und Aktionsleiste)
+        JPanel bottomContainer = new JPanel(new BorderLayout(0, 10));
         bottomContainer.setOpaque(false);
+        bottomContainer.setBorder(new EmptyBorder(5, 20, 20, 20));
 
-        playerHandPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 6));
+        playerHandPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 8));
         playerHandPanel.setOpaque(false);
+
         JScrollPane handScroll = new JScrollPane(playerHandPanel);
-        handScroll.setPreferredSize(new Dimension(1000, 120));
+        handScroll.setPreferredSize(new Dimension(1100, 155));
+        handScroll.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(255, 255, 255, 120), 1),
+                " Deine Handkarten ", 0, 0, new Font("SansSerif", Font.BOLD, 13), Color.WHITE));
         handScroll.setOpaque(false);
         handScroll.getViewport().setOpaque(false);
         bottomContainer.add(handScroll, BorderLayout.CENTER);
 
-        // Aktionsleiste
-        JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 10));
+        // Buttons
+        JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 0));
         actionsPanel.setOpaque(false);
 
-        meldBtn = new JButton("Kombination melden");
+        meldBtn = createActionButton("Kombination melden (mind. 3)");
         meldBtn.addActionListener(e -> playerMeldSelected());
 
-        layOffBtn = new JButton("Anlegen");
+        layOffBtn = createActionButton("Anlegen (1 Karte)");
         layOffBtn.addActionListener(e -> playerLayOffSelected());
 
-        discardBtn = new JButton("Karte abwerfen (Zug beenden)");
+        discardBtn = createActionButton("Karte abwerfen (Zug beenden)");
         discardBtn.addActionListener(e -> playerDiscardSelected());
 
         actionsPanel.add(meldBtn);
@@ -157,27 +185,86 @@ public class RommeGui extends JFrame {
 
         add(bottomContainer, BorderLayout.SOUTH);
 
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                returnToMenu();
+            }
+        });
+
         refreshUI();
+    }
+
+    private JButton createCardPileButton(String label, Color bg) {
+        JButton btn = new JButton(label);
+        btn.setPreferredSize(new Dimension(135, 150));
+        btn.setBackground(bg);
+        btn.setForeground(Color.WHITE);
+        btn.setFont(new Font("SansSerif", Font.BOLD, 14));
+        btn.setFocusPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.setBorder(BorderFactory.createLineBorder(Color.WHITE, 2));
+        return btn;
+    }
+
+    private JButton createActionButton(String text) {
+        JButton btn = new JButton(text);
+        btn.setFont(new Font("SansSerif", Font.BOLD, 13));
+        btn.setBackground(new Color(45, 55, 75));
+        btn.setForeground(Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setPreferredSize(new Dimension(240, 38));
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+
+    private void returnToMenu() {
+        dispose();
+        if (parentMenu != null) {
+            parentMenu.setVisible(true);
+        } else {
+            new MainMenu().setVisible(true);
+        }
     }
 
     private String getDiscardPileTopText() {
         if (discardPile.isEmpty()) {
-            return "Ablage (leer)";
+            return "<html><center>Ablage<br>(leer)</center></html>";
         }
         Card top = discardPile.get(discardPile.size() - 1);
-        return "Ablage: " + top.toString();
+        return "<html><center>Ablage<br><b>" + top.getRank().getShortName() + " " + top.getSuit().getSymbol() + "</b></center></html>";
     }
 
     private void refreshUI() {
-        // Hand aktualisieren
+        // Handkarten aktualisieren
         playerHandPanel.removeAll();
         for (Card card : playerHand) {
-            JButton cardBtn = new JButton(card.toString());
-            cardBtn.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            JButton cardBtn = new JButton();
+            cardBtn.setLayout(new BorderLayout());
+            cardBtn.setPreferredSize(new Dimension(85, 125));
+            cardBtn.setFocusPainted(false);
+            cardBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+            boolean isRed = card.getSuit() == Suit.HERZ || card.getSuit() == Suit.KARO;
+            Color cardColor = isRed ? new Color(195, 20, 20) : Color.BLACK;
+
+            JLabel topLabel = new JLabel(" " + card.getRank().getShortName() + " " + card.getSuit().getSymbol());
+            topLabel.setFont(new Font("SansSerif", Font.BOLD, 13));
+            topLabel.setForeground(cardColor);
+
+            JLabel centerLabel = new JLabel(card.getSuit().getSymbol(), SwingConstants.CENTER);
+            centerLabel.setFont(new Font("SansSerif", Font.PLAIN, 32));
+            centerLabel.setForeground(cardColor);
+
+            cardBtn.add(topLabel, BorderLayout.NORTH);
+            cardBtn.add(centerLabel, BorderLayout.CENTER);
+
             if (selectedCards.contains(card)) {
-                cardBtn.setBackground(new Color(241, 196, 15));
+                cardBtn.setBackground(new Color(255, 225, 110));
+                cardBtn.setBorder(BorderFactory.createLineBorder(new Color(210, 140, 0), 3));
             } else {
                 cardBtn.setBackground(Color.WHITE);
+                cardBtn.setBorder(BorderFactory.createLineBorder(Color.BLACK, 1));
             }
 
             cardBtn.addActionListener(e -> {
@@ -191,26 +278,37 @@ public class RommeGui extends JFrame {
             playerHandPanel.add(cardBtn);
         }
 
-        // Meldungen aktualisieren
+        // Auslagen aktualisieren
         centerMeldsPanel.removeAll();
         for (int i = 0; i < meldedSets.size(); i++) {
             List<Card> set = meldedSets.get(i);
-            JPanel setRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+            JPanel setRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
             setRow.setOpaque(false);
-            setRow.add(new JLabel("Gruppe " + (i + 1) + ": "));
+
+            JLabel titleLbl = new JLabel("Gruppe " + (i + 1) + ": ");
+            titleLbl.setForeground(new Color(255, 235, 130));
+            titleLbl.setFont(new Font("SansSerif", Font.BOLD, 14));
+            setRow.add(titleLbl);
+
             for (Card c : set) {
-                JLabel cLbl = new JLabel("[" + c.toString() + "]");
-                cLbl.setForeground(Color.WHITE);
+                JLabel cLbl = new JLabel(" " + c.getRank().getShortName() + c.getSuit().getSymbol() + " ");
+                cLbl.setOpaque(true);
+                cLbl.setBackground(Color.WHITE);
+                cLbl.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 1));
+                boolean isRed = c.getSuit() == Suit.HERZ || c.getSuit() == Suit.KARO;
+                cLbl.setForeground(isRed ? Color.RED : Color.BLACK);
+                cLbl.setFont(new Font("SansSerif", Font.BOLD, 13));
                 setRow.add(cLbl);
             }
             centerMeldsPanel.add(setRow);
         }
 
-        drawDeckBtn.setText("Deck (" + drawPile.size() + ")");
+        drawDeckBtn.setText("<html><center>Deck<br>(" + drawPile.size() + " Karten)</center></html>");
         drawDiscardBtn.setText(getDiscardPileTopText());
 
         drawDeckBtn.setEnabled(isPlayerTurn && !hasDrawnThisTurn);
         drawDiscardBtn.setEnabled(isPlayerTurn && !hasDrawnThisTurn && !discardPile.isEmpty());
+
         meldBtn.setEnabled(isPlayerTurn && hasDrawnThisTurn);
         layOffBtn.setEnabled(isPlayerTurn && hasDrawnThisTurn);
         discardBtn.setEnabled(isPlayerTurn && hasDrawnThisTurn);
@@ -227,7 +325,7 @@ public class RommeGui extends JFrame {
             playerHand.add(drawn);
             sortHand(playerHand);
             hasDrawnThisTurn = true;
-            statusLabel.setText("Du hast " + drawn + " gezogen. Melde Karten oder wirf eine ab.");
+            statusLabel.setText("Schritt 2: Karte (" + drawn + ") gezogen. Wähle Karten zum Melden oder Abwerfen!");
             refreshUI();
         } catch (EmptyDeckException e) {
             statusLabel.setText("Das Deck ist komplett leer!");
@@ -240,7 +338,7 @@ public class RommeGui extends JFrame {
         playerHand.add(picked);
         sortHand(playerHand);
         hasDrawnThisTurn = true;
-        statusLabel.setText("Du hast " + picked + " vom Ablagestapel genommen.");
+        statusLabel.setText("Schritt 2: (" + picked + ") aufgenommen. Wähle Karten zum Melden oder Abwerfen!");
         refreshUI();
     }
 
@@ -255,7 +353,7 @@ public class RommeGui extends JFrame {
             meldedSets.add(newMeld);
             playerHand.removeAll(selectedCards);
             selectedCards.clear();
-            statusLabel.setText("Kombination erfolgreich ausgelegt!");
+            statusLabel.setText("Kombination erfolgreich ausgelegt! Wirf nun eine Karte ab.");
             checkWinCondition(playerHand, "Herzlichen Glückwunsch! Du hast gewonnen!");
             refreshUI();
         } else {
@@ -265,7 +363,7 @@ public class RommeGui extends JFrame {
 
     private void playerLayOffSelected() {
         if (selectedCards.size() != 1) {
-            JOptionPane.showMessageDialog(this, "Wähle genau 1 Karte aus, um sie an eine Kombination anzulegen.");
+            JOptionPane.showMessageDialog(this, "Wähle genau 1 Karte aus, um sie anzulegen.");
             return;
         }
         if (meldedSets.isEmpty()) {
@@ -303,7 +401,7 @@ public class RommeGui extends JFrame {
                     targetSet.addAll(testSet);
                     playerHand.remove(toAdd);
                     selectedCards.clear();
-                    statusLabel.setText("Karte erfolgreich angelegt!");
+                    statusLabel.setText("Karte erfolgreich angelegt! Wirf nun eine Karte ab.");
                     checkWinCondition(playerHand, "Herzlichen Glückwunsch! Du hast gewonnen!");
                     refreshUI();
                 } else {
@@ -315,7 +413,7 @@ public class RommeGui extends JFrame {
 
     private void playerDiscardSelected() {
         if (selectedCards.size() != 1) {
-            JOptionPane.showMessageDialog(this, "Wähle genau 1 Karte zum Abwerfen aus.");
+            JOptionPane.showMessageDialog(this, "Klicke genau 1 Handkarte gelb an, um sie abzuwerfen.");
             return;
         }
         Card toDiscard = selectedCards.get(0);
@@ -330,7 +428,7 @@ public class RommeGui extends JFrame {
         isPlayerTurn = false;
         hasDrawnThisTurn = false;
         refreshUI();
-        statusLabel.setText("Computer ist am Zug...");
+        statusLabel.setText("Computer überlegt und zieht...");
 
         Timer timer = new Timer(1000, new ActionListener() {
             @Override
@@ -345,15 +443,12 @@ public class RommeGui extends JFrame {
     private void botTurn() {
         try {
             ensureDeckNotEmpty();
-            // Bot zieht bevorzugt vom Deck
             Card drawn = drawPile.drawCard();
             botHand.add(drawn);
             sortHand(botHand);
 
-            // Bot versucht Sequenz oder Satz zu finden
             findAndMeldForBot();
 
-            // Bot wirft die erste Karte ab
             if (!botHand.isEmpty()) {
                 Card discarded = botHand.remove(botHand.size() - 1);
                 discardPile.add(discarded);
@@ -364,7 +459,7 @@ public class RommeGui extends JFrame {
             }
 
             isPlayerTurn = true;
-            statusLabel.setText("Du bist am Zug. Ziehe eine Karte.");
+            statusLabel.setText("Du bist wieder am Zug! Klicke auf das Deck oder die Ablage.");
             refreshUI();
         } catch (EmptyDeckException ex) {
             statusLabel.setText("Das Spiel endet unentschieden (keine Karten mehr).");
@@ -396,8 +491,7 @@ public class RommeGui extends JFrame {
         if (hand.isEmpty()) {
             refreshUI();
             JOptionPane.showMessageDialog(this, message, "Spiel beendet", JOptionPane.INFORMATION_MESSAGE);
-            new MainMenu(currentUser).setVisible(true);
-            dispose();
+            returnToMenu();
             return true;
         }
         return false;
@@ -428,7 +522,7 @@ public class RommeGui extends JFrame {
         List<Suit> suits = new ArrayList<>();
         for (Card c : cards) {
             if (c.getRank() != firstRank) return false;
-            if (suits.contains(c.getSuit())) return false; // Keine doppelten Farben im Satz
+            if (suits.contains(c.getSuit())) return false;
             suits.add(c.getSuit());
         }
         return true;
@@ -458,5 +552,9 @@ public class RommeGui extends JFrame {
             if (suitComp != 0) return suitComp;
             return Integer.compare(c1.getRank().ordinal(), c2.getRank().ordinal());
         });
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> new RommeGui().setVisible(true));
     }
 }
