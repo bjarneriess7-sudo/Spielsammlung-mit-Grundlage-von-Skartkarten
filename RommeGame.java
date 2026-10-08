@@ -1,511 +1,462 @@
-import java.util.ArrayDeque;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.Deque;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 
-public class RommeGame {
+public class RommeGui extends JFrame {
 
-    public enum Suit {
-        Hearts, Diamonds, Clubs, Spades
+    private final UserAccount currentUser;
+    private final Deck drawPile;
+    private final List<Card> discardPile;
+
+    private final List<Card> playerHand;
+    private final List<Card> botHand;
+    private final List<List<Card>> meldedSets;
+
+    private final List<Card> selectedCards;
+
+    private boolean isPlayerTurn;
+    private boolean hasDrawnThisTurn;
+
+    // GUI Komponenten
+    private JPanel centerMeldsPanel;
+    private JPanel playerHandPanel;
+    private JLabel statusLabel;
+    private JButton drawDeckBtn;
+    private JButton drawDiscardBtn;
+    private JButton meldBtn;
+    private JButton layOffBtn;
+    private JButton discardBtn;
+
+    public RommeGui(UserAccount user) {
+        super("Rommé - Angemeldet als: " + (user != null ? user.getUsername() : "Gast"));
+        this.currentUser = user;
+
+        this.drawPile = new Deck();
+        this.drawPile.shuffle();
+        this.discardPile = new ArrayList<>();
+        this.playerHand = new ArrayList<>();
+        this.botHand = new ArrayList<>();
+        this.meldedSets = new ArrayList<>();
+        this.selectedCards = new ArrayList<>();
+
+        this.isPlayerTurn = true;
+        this.hasDrawnThisTurn = false;
+
+        initGame();
+        initUI();
     }
 
-    public enum Rank {
-        Two(2, 2), Three(3, 3), Four(4, 4), Five(5, 5), Six(6, 6), Seven(7, 7), Eight(8, 8), Nine(9, 9), Ten(10, 10),
-        Jack(11, 10), Queen(12, 10), King(13, 10), Ace(14, 11), Joker(15, 20);
-
-        private final int order;
-        private final int defaultPoints;
-
-        Rank(int order, int defaultPoints) {
-            this.order = order;
-            this.defaultPoints = defaultPoints;
+    private void initGame() {
+        try {
+            // 10 Karten für jeden Spieler austeilen
+            for (int i = 0; i < 10; i++) {
+                playerHand.add(drawPile.drawCard());
+                botHand.add(drawPile.drawCard());
+            }
+            // Erste Karte auf den Ablagestapel
+            discardPile.add(drawPile.drawCard());
+        } catch (EmptyDeckException e) {
+            JOptionPane.showMessageDialog(this, "Fehler beim Initialisieren des Kartendecks.");
         }
-
-        public int getOrder() {
-            return order;
-        }
-
-        public int getDefaultPoints() {
-            return defaultPoints;
-        }
+        sortHand(playerHand);
     }
 
-    public static class Card {
-        private final Suit suit;
-        private final Rank rank;
-        private final boolean isJoker;
+    private void initUI() {
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        setSize(1100, 750);
+        setLocationRelativeTo(null);
+        setLayout(new BorderLayout(10, 10));
+        getContentPane().setBackground(new Color(34, 112, 60));
 
-        public Card(Suit suit, Rank rank) {
-            this(suit, rank, false);
-        }
+        // Oberes Panel: Info und Menü-Rückkehr
+        JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel.setOpaque(false);
+        JButton backBtn = new JButton("Zurück zum Hauptmenü");
+        backBtn.addActionListener(e -> {
+            new MainMenu(currentUser).setVisible(true);
+            dispose();
+        });
+        statusLabel = new JLabel("Willkommen! Ziehe eine Karte vom Deck oder Ablagestapel.", SwingConstants.CENTER);
+        statusLabel.setForeground(Color.WHITE);
+        statusLabel.setFont(new Font("SansSerif", Font.BOLD, 15));
+        topPanel.add(backBtn, BorderLayout.WEST);
+        topPanel.add(statusLabel, BorderLayout.CENTER);
+        add(topPanel, BorderLayout.NORTH);
 
-        public Card(Suit suit, Rank rank, boolean isJoker) {
-            this.suit = suit;
-            this.rank = rank;
-            this.isJoker = isJoker;
-        }
+        // Mittleres Panel: Stapel links und gemeldete Kombinationen rechts
+        JPanel middleContainer = new JPanel(new BorderLayout(20, 20));
+        middleContainer.setOpaque(false);
+        middleContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        public static Card createJoker() {
-            return new Card();
-        }
+        // Stapel (Nachzieh- & Ablagestapel)
+        JPanel pilesPanel = new JPanel(new GridLayout(2, 1, 10, 10));
+        pilesPanel.setOpaque(false);
+        drawDeckBtn = new JButton("Deck (" + drawPile.size() + ")");
+        drawDeckBtn.setPreferredSize(new Dimension(130, 80));
+        drawDeckBtn.setBackground(new Color(41, 128, 185));
+        drawDeckBtn.setForeground(Color.WHITE);
+        drawDeckBtn.addActionListener(e -> playerDrawFromDeck());
 
-        private Card() {
-            this.suit = null;
-            this.rank = Rank.Joker;
-            this.isJoker = true;
-        }
+        drawDiscardBtn = new JButton(getDiscardPileTopText());
+        drawDiscardBtn.setPreferredSize(new Dimension(130, 80));
+        drawDiscardBtn.setBackground(new Color(230, 126, 34));
+        drawDiscardBtn.setForeground(Color.WHITE);
+        drawDiscardBtn.addActionListener(e -> playerDrawFromDiscard());
 
-        public Suit getSuit() {
-            return suit;
-        }
+        pilesPanel.add(drawDeckBtn);
+        pilesPanel.add(drawDiscardBtn);
+        middleContainer.add(pilesPanel, BorderLayout.WEST);
 
-        public Rank getRank() {
-            return rank;
-        }
+        // Gemeldete Karten
+        centerMeldsPanel = new JPanel();
+        centerMeldsPanel.setLayout(new BoxLayout(centerMeldsPanel, BoxLayout.Y_AXIS));
+        centerMeldsPanel.setBackground(new Color(24, 85, 45));
+        JScrollPane meldScroll = new JScrollPane(centerMeldsPanel);
+        meldScroll.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(Color.WHITE), "Tischablagen (Meldungen)", 0, 0, null, Color.WHITE));
+        meldScroll.setOpaque(false);
+        meldScroll.getViewport().setOpaque(false);
+        middleContainer.add(meldScroll, BorderLayout.CENTER);
 
-        public boolean isJoker() {
-            return isJoker;
-        }
+        add(middleContainer, BorderLayout.CENTER);
 
-        @Override
-        public String toString() {
-            if (isJoker) {
-                return "Joker";
-            } else {
-                return rank + "of" + suit;
-            }
-        }
+        // Unteres Panel: Handkarten und Aktionen
+        JPanel bottomContainer = new JPanel(new BorderLayout(5, 5));
+        bottomContainer.setOpaque(false);
+
+        playerHandPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 6));
+        playerHandPanel.setOpaque(false);
+        JScrollPane handScroll = new JScrollPane(playerHandPanel);
+        handScroll.setPreferredSize(new Dimension(1000, 120));
+        handScroll.setOpaque(false);
+        handScroll.getViewport().setOpaque(false);
+        bottomContainer.add(handScroll, BorderLayout.CENTER);
+
+        // Aktionsleiste
+        JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 10));
+        actionsPanel.setOpaque(false);
+
+        meldBtn = new JButton("Kombination melden");
+        meldBtn.addActionListener(e -> playerMeldSelected());
+
+        layOffBtn = new JButton("Anlegen");
+        layOffBtn.addActionListener(e -> playerLayOffSelected());
+
+        discardBtn = new JButton("Karte abwerfen (Zug beenden)");
+        discardBtn.addActionListener(e -> playerDiscardSelected());
+
+        actionsPanel.add(meldBtn);
+        actionsPanel.add(layOffBtn);
+        actionsPanel.add(discardBtn);
+        bottomContainer.add(actionsPanel, BorderLayout.SOUTH);
+
+        add(bottomContainer, BorderLayout.SOUTH);
+
+        refreshUI();
     }
 
-    public static class MeldValidator {
-        /**
-         * * Prüft, ob die Kartengruppe eine gültige Auslegung ist.
-         */
-
-        public static boolean isValidSet(List<Card> cards) {
-            if (cards == null || cards.size() < 3 || cards.size() > 4) {
-                return false;
-            }
-            Rank expectedRank = null;
-            Set<Suit> suits = new HashSet<>();
-            int jokerCount = 0;
-
-            for (Card c : cards) {
-                if (c.isJoker()) {
-                    jokerCount++;
-                } else {
-                    if (expectedRank == null) {
-                        expectedRank = c.getRank();
-                    } else if (c.getRank() != expectedRank) {
-                        return false;
-                    }
-                    if (!suits.add(c.getSuit())) {
-                        return false;
-                    }
-                }
-            }
-            return jokerCount < cards.size();
-        }
-
-        public static boolean isValidSequence(List<Card> cards) {
-            if (cards == null || cards.size() < 3) {
-                return false;
-            }
-            Suit suit = null;
-            int naturalCards = 0;
-
-            for (Card c : cards) {
-                if (!c.isJoker()) {
-                    naturalCards++;
-                    if (suit == null) {
-                        suit = c.getSuit();
-                    } else if (c.getSuit() != suit) {
-                        return false;
-                    }
-                }
-            }
-            if (naturalCards == 0)
-                return false;
-
-            return checkConsecutive(cards, false) || checkConsecutive(cards, true);
-        }
-
-        private static boolean checkConsecutive(List<Card> cards, boolean aceAsOne) {
-            int jokerAvailable = 0;
-            List<Integer> orders = new ArrayList<>();
-            for (Card c : cards) {
-                if (c.isJoker()) {
-                    jokerAvailable++;
-                } else {
-                    int val = (c.getRank() == Rank.Ace && aceAsOne) ? 1 : c.getRank().getOrder();
-                    orders.add(val);
-                }
-            }
-            Collections.sort(orders);
-
-            for (int i = 0; i < orders.size() - 1; i++) {
-                if (orders.get(i).equals(orders.get(i + 1))) {
-                    return false;
-                }
-            }
-            int neededJokers = 0;
-            for (int i = 0; i < orders.size() - 1; i++) {
-                int gap = orders.get(i + 1) - orders.get(i) - 1;
-                neededJokers += gap;
-            }
-
-            if (neededJokers <= jokerAvailable) {
-                int totalLength = orders.get(orders.size() - 1) - orders.get(0) + 1 + jokerAvailable - neededJokers;
-                return totalLength <= 14;
-            }
-            return false;
-        }
-
-        public static int calculatePoints(List<Card> meld) {
-            if (!isValidSet(meld) && !isValidSequence(meld)) {
-                return 0;
-            }
-            int sum = 0;
-            for (Card c : meld) {
-                if (c.isJoker()) {
-                    sum += 20;
-                } else if (c.getRank() == Rank.Ace) {
-                    sum += (isLowAceInMeld(meld, c)) ? 1 : 11;
-                } else {
-                    sum += c.getRank().getDefaultPoints();
-                }
-            }
-            return sum;
-        }
-
-        private static boolean isLowAceInMeld(List<Card> meld, Card ace) {
-            for (Card c : meld) {
-                if (!c.isJoker() && c.getRank() == Rank.Two)
-                    return true;
-            }
-            return false;
-        }
-
-        public static boolean canMakeInitialMeld(List<List<Card>> melds, int minPointsThreshold) {
-            int total = 0;
-            for (List<Card> meld : melds) {
-                if (!isValidSet(meld) && !isValidSequence(meld)) {
-                    return false;
-                }
-                total += calculatePoints(meld);
-            }
-            return total >= minPointsThreshold;
-        }
-    }
-
-    public static void main(String[] args) {
-        List<Card> satz = List.of(
-                new Card(Suit.Hearts, Rank.Nine),
-                new Card(Suit.Diamonds, Rank.Nine),
-                Card.createJoker());
-        System.out.println("Ist gültiger Satz: " + MeldValidator.isValidSet(satz));
-        List<Card> sequenz = List.of(
-                new Card(Suit.Clubs, Rank.Seven),
-                new Card(Suit.Clubs, Rank.Eight),
-                new Card(Suit.Clubs, Rank.Nine));
-        System.out.println("Ist gültige Sequenz: " + MeldValidator.isValidSequence(sequenz));
-
-        List<List<Card>> melds = List.of(satz, sequenz);
-        boolean canOpen = MeldValidator.canMakeInitialMeld(melds, 30);
-
-        int gesamtPunkte = melds.stream().mapToInt(MeldValidator::calculatePoints).sum();
-        System.out.println("Gesamt Punkte: " + gesamtPunkte);
-        System.out.println("Erstauslage erlaubt (>= 30): " + canOpen);
-    }
-
-    public class Player {
-        private final String name;
-        private final List<RommeGame.Card> hand = new ArrayList<>();
-        private boolean hasOpened = false;
-
-        public Player(String name) {
-            this.name = name;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public List<RommeGame.Card> getHand() {
-            return hand;
-        }
-
-        public boolean hasOpened() {
-            return hasOpened;
-        }
-
-        public void setOpened(boolean opened) {
-            this.hasOpened = opened;
-        }
-
-        public void addCard(RommeGame.Card card) {
-            hand.add(card);
-        }
-
-        public boolean removeCard(RommeGame.Card card) {
-            return hand.remove(card);
-        }
-
-        public boolean removeAll(Collection<RommeGame.Card> cards) {
-            List<RommeGame.Card> copy = new ArrayList<>(hand);
-            for (RommeGame.Card c : cards) {
-                if (!copy.remove(c))
-                    return false;
-            }
-            for (RommeGame.Card c : cards) {
-                hand.remove(c);
-            }
-            return true;
-        }
-
-        @Override
-        public String toString() {
-            return name + " [Hand: " + hand.size() + " Karten, Ausgelegt: " + hasOpened + "]";
-        }
-    }
-
-    public static record TableMeld(List<RommeGame.Card> cards) {
-        public boolean canAddCard(RommeGame.Card card) {
-            if (RommeGame.MeldValidator.isValidSet(cards)) {
-                List<RommeGame.Card> test = new ArrayList<>(cards);
-                test.add(card);
-                return RommeGame.MeldValidator.isValidSet(test);
-            }
-            List<RommeGame.Card> testFront = new ArrayList(cards);
-            testFront.add(0, card);
-            if (RommeGame.MeldValidator.isValidSet(testFront)) {
-                return true;
-            }
-            List<RommeGame.Card> testBack = new ArrayList(cards);
-            testBack.add(card);
-            return RommeGame.MeldValidator.isValidSequence(testBack);
-        }
-    }
-
-    public boolean addCard(RommeGame.Card card) {
-        if (!canAddCard(card))
-            return false;
-
-        if (RommeGame.MeldValidator.isValidSet(cards)) {
-            cards.add(card);
-            return true;
-        }
-        List<RommeGame.Card> testFront = new ArrayList<>(cards);
-        testFront.add(0, card);
-        if (RommeGame.MeldValidator.isValidSequence(testFront)) {
-            cards.add(0, card);
-            return true;
-        }
-        cards.add(card);
-        return true;
-    }
-
-    public RommeGame.Card swapJokerWith(RommeGame.Card replacementCard) {
-        for (int i = 0; i < cards.size(); i++) {
-            RommeGame.Card joker = cards.get(i);
-            cards.set(i, replacementCard);
-            if (RommeGame.MeldValidator.isValidSet(cards) || RommeGame.MeldValidator.isValidSequence(cards)) {
-                return joker;
-            } else {
-                cards.set(i, joker);
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public String toString() {
-        return cards.toString();
-    }
-
-    public enum TurnPhase {
-        DRAW,
-        MELD_OR_LAYOFF,
-        DISCARD,
-        ROUND_OVER
-    }
-
-    private final List<Player> players;
-    private int currentPlayerIndex = 0;
-    private TurnPhase currentPhase = TurnPhase.DRAW;
-
-    private final Deque<RommeGame.Card> drawPile = new ArrayDeque<>();
-    private final Deque<RommeGame.Card> discardPile = new ArrayDeque<>();
-    private final List<TableMeld> tableMelds = new ArrayList<>();
-
-    private final int openingThreshold;
-
-    public RommeGame(List<Player> players, int openingThreshold) {
-        this.players = players;
-        this.openingThreshold = openingThreshold;
-    }
-
-    public Player getCurrentPlayer1() {
-        return players.get(currentPlayerIndex);
-    }
-
-    public TurnPhase getCurrentPhase() {
-        return currentPhase;
-    }
-
-    public List<TableMeld> getTableMelds() {
-        return Collections.unmodifiableList(tableMelds);
-    }
-
-    public RommeGame.Card peekDiscardPile() {
-        return discardPile.peek();
-    }
-
-    public void setupPiles(List<RommeGame.Card> deckCards) {
-        drawPile.clear();
-        discardPile.clear();
-        drawPile.addAll(deckCards);
-
-        if (!drawPile.isEmpty()) {
-            discardPile.push(drawPile.pop());
-        }
-    }
-
-    public RommeGame.Card drawFromStock() {
-        validatePhase(TurnPhase.DRAW);
-        if (drawPile.isEmpty()) {
-            recycleDiscardPile();
-        }
-        RommeGame.Card drawn = drawPile.pop();
-        getCurrentPlayer1().addCard(drawn);
-        currentPhase = TurnPhase.MELD_OR_LAYOFF;
-        return drawn;
-    }
-
-    public RommeGame.Card drawFromDiscard() {
-        validatePhase(TurnPhase.DRAW);
+    private String getDiscardPileTopText() {
         if (discardPile.isEmpty()) {
-            throw new IllegalStateException("Ablagestapel ist leer!");
+            return "Ablage (leer)";
         }
-
-        RommeGame.Card drawn = discardPile.pop();
-        getCurrentPlayer1().addCard(drawn);
-        currentPhase = TurnPhase.MELD_OR_LAYOFF;
-        return drawn;
+        Card top = discardPile.get(discardPile.size() - 1);
+        return "Ablage: " + top.toString();
     }
 
-    public boolean playNewMelds(List<List<RommeGame.Card>> newMelds) {
-        validatePhase(TurnPhase.MELD_OR_LAYOFF);
-        Player p = getCurrentPlayer1();
-
-        if (!p.hasOpened()) {
-            if (!RommeGame.MeldValidator.canMakeInitialMeld(newMelds, openingThreshold)) {
-                return false;
+    private void refreshUI() {
+        // Hand aktualisieren
+        playerHandPanel.removeAll();
+        for (Card card : playerHand) {
+            JButton cardBtn = new JButton(card.toString());
+            cardBtn.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            if (selectedCards.contains(card)) {
+                cardBtn.setBackground(new Color(241, 196, 15));
+            } else {
+                cardBtn.setBackground(Color.WHITE);
             }
-        } else {
-            for (List<RommeGame.Card> meld : newMelds) {
-                if (!RommeGame.MeldValidator.isValidSet(meld) && !RommeGame.MeldValidator.isValidSequence(meld)) {
-                    return false;
+
+            cardBtn.addActionListener(e -> {
+                if (selectedCards.contains(card)) {
+                    selectedCards.remove(card);
+                } else {
+                    selectedCards.add(card);
                 }
+                refreshUI();
+            });
+            playerHandPanel.add(cardBtn);
+        }
+
+        // Meldungen aktualisieren
+        centerMeldsPanel.removeAll();
+        for (int i = 0; i < meldedSets.size(); i++) {
+            List<Card> set = meldedSets.get(i);
+            JPanel setRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+            setRow.setOpaque(false);
+            setRow.add(new JLabel("Gruppe " + (i + 1) + ": "));
+            for (Card c : set) {
+                JLabel cLbl = new JLabel("[" + c.toString() + "]");
+                cLbl.setForeground(Color.WHITE);
+                setRow.add(cLbl);
             }
+            centerMeldsPanel.add(setRow);
         }
 
-        List<RommeGame.Card> allCards = new ArrayList<>();
-        newMelds.forEach(allCards::addAll);
-        if (!p.removeAll(allCards)) {
-            return false;
-        }
+        drawDeckBtn.setText("Deck (" + drawPile.size() + ")");
+        drawDiscardBtn.setText(getDiscardPileTopText());
 
-        for (List<RommeGame.Card> meld : newMelds) {
-            tableMelds.add(new TableMeld(meld));
-        }
+        drawDeckBtn.setEnabled(isPlayerTurn && !hasDrawnThisTurn);
+        drawDiscardBtn.setEnabled(isPlayerTurn && !hasDrawnThisTurn && !discardPile.isEmpty());
+        meldBtn.setEnabled(isPlayerTurn && hasDrawnThisTurn);
+        layOffBtn.setEnabled(isPlayerTurn && hasDrawnThisTurn);
+        discardBtn.setEnabled(isPlayerTurn && hasDrawnThisTurn);
 
-        p.setOpened(true);
-        return true;
+        revalidate();
+        repaint();
     }
 
-    public boolean layOffCard(int tableMeldIndex, RommeGame.Card card) {
-        validatePhase(TurnPhase.MELD_OR_LAYOFF);
-        Player p = getCurrentPlayer1();
-
-        if (!p.hasOpened()) {
-            throw new IllegalStateException("Anlegen ist erst nach erfolgter Erstauslage erlaubt!");
+    private void playerDrawFromDeck() {
+        if (!isPlayerTurn || hasDrawnThisTurn) return;
+        try {
+            ensureDeckNotEmpty();
+            Card drawn = drawPile.drawCard();
+            playerHand.add(drawn);
+            sortHand(playerHand);
+            hasDrawnThisTurn = true;
+            statusLabel.setText("Du hast " + drawn + " gezogen. Melde Karten oder wirf eine ab.");
+            refreshUI();
+        } catch (EmptyDeckException e) {
+            statusLabel.setText("Das Deck ist komplett leer!");
         }
-        if (tableMeldIndex < 0 || tableMeldIndex >= tableMelds.size()) {
-            return false;
-        }
-        if (!p.getHand().contains(card)) {
-            return false;
-        }
-        TableMeld targetMeld = tableMelds.get(tableMeldIndex);
-        if (targetMeld.addCard(card)) {
-            p.removeCard(card);
-            return true;
-        }
-        return false;
     }
 
-    public boolean swapJoker(int tableMeldIndex, RommeGame.Card handCard) {
-        validatePhase(TurnPhase.MELD_OR_LAYOFF);
-        Player p = getCurrentPlayer1();
-        if (!p.hasOpened()) {
-            throw new IllegalStateException("Joker-Tausch ist erst nach erfolgter Erstauslegung möglich!");
-        }
-        if (!p.getHand().contains(handCard)) {
-            return false;
-        }
-        TableMeld targetMeld = tableMelds.get(tableMeldIndex);
-        RommeGame.Card freedJoker = targetMeld.swapJokerWith(handCard);
-        if (freedJoker != null) {
-            p.removeCard(handCard);
-            p.addCard(freedJoker);
-            return true;
-        }
-        return false;
+    private void playerDrawFromDiscard() {
+        if (!isPlayerTurn || hasDrawnThisTurn || discardPile.isEmpty()) return;
+        Card picked = discardPile.remove(discardPile.size() - 1);
+        playerHand.add(picked);
+        sortHand(playerHand);
+        hasDrawnThisTurn = true;
+        statusLabel.setText("Du hast " + picked + " vom Ablagestapel genommen.");
+        refreshUI();
     }
 
-    public void discard(RommeGame.Card card) {
-        if (currentPhase == TurnPhase.MELD_OR_LAYOFF) {
-            currentPhase = TurnPhase.DISCARD;
-        }
-        validatePhase(TurnPhase.DISCARD);
-
-        Player p = getCurrentPlayer1();
-        if (!p.removeCard(card)) {
-            throw new IllegalArgumentException("Karte befindet sich nicht auf der Hand!");
-        }
-
-        discardPile.push(card);
-
-        if (p.getHand().isEmpty()) {
-            currentPhase = TurnPhase.ROUND_OVER;
-            System.out.println(">>> " + p.getName() + " hat die Runde beendet und gewonnen! <<<");
+    private void playerMeldSelected() {
+        if (selectedCards.size() < 3) {
+            JOptionPane.showMessageDialog(this, "Eine Meldung benötigt mindestens 3 Karten.");
             return;
         }
-        currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
-        currentPhase = TurnPhase.DRAW;
+        if (isValidMeld(selectedCards)) {
+            List<Card> newMeld = new ArrayList<>(selectedCards);
+            sortMeld(newMeld);
+            meldedSets.add(newMeld);
+            playerHand.removeAll(selectedCards);
+            selectedCards.clear();
+            statusLabel.setText("Kombination erfolgreich ausgelegt!");
+            checkWinCondition(playerHand, "Herzlichen Glückwunsch! Du hast gewonnen!");
+            refreshUI();
+        } else {
+            JOptionPane.showMessageDialog(this, "Ungültige Kombination! Erlaubt sind Sätze gleicher Ränge oder Sequenzen gleicher Farbe.");
+        }
     }
 
-    private void recycleDiscardPile() {
-        if (discardPile.size() <= 1) {
-            throw new IllegalStateException("Keine Karten mehr zum Nachziehen vorhanden!");
+    private void playerLayOffSelected() {
+        if (selectedCards.size() != 1) {
+            JOptionPane.showMessageDialog(this, "Wähle genau 1 Karte aus, um sie an eine Kombination anzulegen.");
+            return;
         }
-        RommeGame.Card top = discardPile.pop();
-        List<RommeGame.Card> list = new ArrayList<>(discardPile);
-        Collections.shuffle(list);
-        discardPile.clear();
-        discardPile.addAll(list);
-        discardPile.push(top);
+        if (meldedSets.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Es gibt noch keine Meldungen auf dem Tisch.");
+            return;
+        }
+
+        String[] options = new String[meldedSets.size()];
+        for (int i = 0; i < meldedSets.size(); i++) {
+            options[i] = "Gruppe " + (i + 1) + ": " + meldedSets.get(i).toString();
+        }
+
+        String selectedGroup = (String) JOptionPane.showInputDialog(
+                this, "Wähle die Gruppe zum Anlegen:", "Anlegen",
+                JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+
+        if (selectedGroup != null) {
+            int index = -1;
+            for (int i = 0; i < options.length; i++) {
+                if (options[i].equals(selectedGroup)) {
+                    index = i;
+                    break;
+                }
+            }
+
+            if (index >= 0) {
+                Card toAdd = selectedCards.get(0);
+                List<Card> targetSet = meldedSets.get(index);
+                List<Card> testSet = new ArrayList<>(targetSet);
+                testSet.add(toAdd);
+
+                if (isValidMeld(testSet)) {
+                    sortMeld(testSet);
+                    targetSet.clear();
+                    targetSet.addAll(testSet);
+                    playerHand.remove(toAdd);
+                    selectedCards.clear();
+                    statusLabel.setText("Karte erfolgreich angelegt!");
+                    checkWinCondition(playerHand, "Herzlichen Glückwunsch! Du hast gewonnen!");
+                    refreshUI();
+                } else {
+                    JOptionPane.showMessageDialog(this, "Die Karte passt nicht an diese Kombination.");
+                }
+            }
+        }
     }
 
-    private void validatePhase(TurnPhase expected) {
-        if (currentPhase != expected) {
-            throw new IllegalStateException(
-                    "Ungültige Aktion in Phase: " + currentPhase + " (Erwartet: " + expected + ")");
+    private void playerDiscardSelected() {
+        if (selectedCards.size() != 1) {
+            JOptionPane.showMessageDialog(this, "Wähle genau 1 Karte zum Abwerfen aus.");
+            return;
         }
+        Card toDiscard = selectedCards.get(0);
+        playerHand.remove(toDiscard);
+        selectedCards.clear();
+        discardPile.add(toDiscard);
+
+        if (checkWinCondition(playerHand, "Herzlichen Glückwunsch! Du hast gewonnen!")) {
+            return;
+        }
+
+        isPlayerTurn = false;
+        hasDrawnThisTurn = false;
+        refreshUI();
+        statusLabel.setText("Computer ist am Zug...");
+
+        Timer timer = new Timer(1000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                botTurn();
+            }
+        });
+        timer.setRepeats(false);
+        timer.start();
+    }
+
+    private void botTurn() {
+        try {
+            ensureDeckNotEmpty();
+            // Bot zieht bevorzugt vom Deck
+            Card drawn = drawPile.drawCard();
+            botHand.add(drawn);
+            sortHand(botHand);
+
+            // Bot versucht Sequenz oder Satz zu finden
+            findAndMeldForBot();
+
+            // Bot wirft die erste Karte ab
+            if (!botHand.isEmpty()) {
+                Card discarded = botHand.remove(botHand.size() - 1);
+                discardPile.add(discarded);
+            }
+
+            if (checkWinCondition(botHand, "Der Computer hat gewonnen!")) {
+                return;
+            }
+
+            isPlayerTurn = true;
+            statusLabel.setText("Du bist am Zug. Ziehe eine Karte.");
+            refreshUI();
+        } catch (EmptyDeckException ex) {
+            statusLabel.setText("Das Spiel endet unentschieden (keine Karten mehr).");
+        }
+    }
+
+    private void findAndMeldForBot() {
+        for (int i = 0; i < botHand.size() - 2; i++) {
+            for (int j = i + 1; j < botHand.size() - 1; j++) {
+                for (int k = j + 1; k < botHand.size(); k++) {
+                    List<Card> candidate = new ArrayList<>();
+                    candidate.add(botHand.get(i));
+                    candidate.add(botHand.get(j));
+                    candidate.add(botHand.get(k));
+                    if (isValidMeld(candidate)) {
+                        sortMeld(candidate);
+                        meldedSets.add(candidate);
+                        botHand.remove(k);
+                        botHand.remove(j);
+                        botHand.remove(i);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    private boolean checkWinCondition(List<Card> hand, String message) {
+        if (hand.isEmpty()) {
+            refreshUI();
+            JOptionPane.showMessageDialog(this, message, "Spiel beendet", JOptionPane.INFORMATION_MESSAGE);
+            new MainMenu(currentUser).setVisible(true);
+            dispose();
+            return true;
+        }
+        return false;
+    }
+
+    private void ensureDeckNotEmpty() throws EmptyDeckException {
+        if (drawPile.isEmpty()) {
+            if (discardPile.size() > 1) {
+                Card top = discardPile.remove(discardPile.size() - 1);
+                while (!discardPile.isEmpty()) {
+                    drawPile.addCard(discardPile.remove(0));
+                }
+                drawPile.shuffle();
+                discardPile.add(top);
+            } else {
+                throw new EmptyDeckException("Keine Karten mehr verfügbar.");
+            }
+        }
+    }
+
+    private boolean isValidMeld(List<Card> cards) {
+        if (cards == null || cards.size() < 3) return false;
+        return isSet(cards) || isSequence(cards);
+    }
+
+    private boolean isSet(List<Card> cards) {
+        Rank firstRank = cards.get(0).getRank();
+        List<Suit> suits = new ArrayList<>();
+        for (Card c : cards) {
+            if (c.getRank() != firstRank) return false;
+            if (suits.contains(c.getSuit())) return false; // Keine doppelten Farben im Satz
+            suits.add(c.getSuit());
+        }
+        return true;
+    }
+
+    private boolean isSequence(List<Card> cards) {
+        List<Card> sorted = new ArrayList<>(cards);
+        sortMeld(sorted);
+
+        Suit suit = sorted.get(0).getSuit();
+        for (int i = 0; i < sorted.size() - 1; i++) {
+            Card c1 = sorted.get(i);
+            Card c2 = sorted.get(i + 1);
+            if (c1.getSuit() != suit || c2.getSuit() != suit) return false;
+            if (c2.getRank().ordinal() != c1.getRank().ordinal() + 1) return false;
+        }
+        return true;
+    }
+
+    private void sortMeld(List<Card> cards) {
+        cards.sort(Comparator.comparingInt(c -> c.getRank().ordinal()));
+    }
+
+    private void sortHand(List<Card> hand) {
+        hand.sort((c1, c2) -> {
+            int suitComp = c1.getSuit().name().compareTo(c2.getSuit().name());
+            if (suitComp != 0) return suitComp;
+            return Integer.compare(c1.getRank().ordinal(), c2.getRank().ordinal());
+        });
     }
 }
