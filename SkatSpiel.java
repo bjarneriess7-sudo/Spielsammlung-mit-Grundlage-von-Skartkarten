@@ -1,64 +1,58 @@
 import java.util.*;
 
-public class SkatSpiel {
+/**
+ * Vollständige Skat-Implementierung (3 Spieler: Du, Bot 1, Bot 2).
+ * Nutzt die gemeinsamen Klassen Card, Deck, Hand, Suit, Rank und GameCoreInterfaces.
+ */
+public class SkatGame implements GameCoreInterfaces {
 
-    public enum Suit {
-        KARO("Karo (♦)", 9),
-        HERZ("Herz (♥)", 10),
-        PIK("Pik (♠)", 11),
-        KREUZ("Kreuz (♣)", 12);
+    public enum GameType {
+        FARBE, GRAND
+    }
 
-        final String name;
-        final int multiplier;
+    public static class SkatGameMode {
+        private final GameType type;
+        private final Suit trumpSuit; // null bei Grand
 
-        Suit(String name, int multiplier) {
+        public SkatGameMode(GameType type, Suit trumpSuit) {
+            this.type = type;
+            this.trumpSuit = trumpSuit;
+        }
+
+        public GameType getType() { return type; }
+        public Suit getTrumpSuit() { return trumpSuit; }
+    }
+
+    public static class SkatPlayer implements Player {
+        private final String name;
+        private final boolean isHuman;
+        private final Hand hand;
+        private final List<Card> tricksWon;
+        private int score;
+
+        public SkatPlayer(String name, boolean isHuman) {
             this.name = name;
-            this.multiplier = multiplier;
-        }
-    }
-
-    public enum Rank {
-        SIEBEN("7", 0, 0),
-        ACHT("8", 1, 0),
-        NEUN("9", 2, 0),
-        DAME("Dame", 3, 3),
-        KOENIG("König", 4, 4),
-        ZEHN("10", 5, 10),
-        ASS("Ass", 6, 11),
-        BUBE("Bube", 7, 2);
-
-        final String label;
-        final int orderInSuit;
-        final int points;
-
-        Rank(String label, int orderInSuit, int points) {
-            this.label = label;
-            this.orderInSuit = orderInSuit;
-            this.points = points;
-        }
-    }
-
-    public static class Card {
-        final Suit suit;
-        final Rank rank;
-
-        Card(Suit suit, Rank rank) {
-            this.suit = suit;
-            this.rank = rank;
+            this.isHuman = isHuman;
+            this.hand = new Hand();
+            this.tricksWon = new ArrayList<>();
+            this.score = 0;
         }
 
-        public boolean isJack() {
-            return rank == Rank.BUBE;
+        @Override public String getName() { return name; }
+        @Override public Hand getHand() { return hand; }
+        @Override public int getScore() { return score; }
+        @Override public void addScore(int points) { this.score += points; }
+        @Override public boolean isHuman() { return isHuman; }
+
+        public List<Card> getTricksWon() { return tricksWon; }
+
+        public boolean isTrump(Card card, SkatGameMode mode) {
+            if (card.getRank() == Rank.BUBE) return true;
+            return mode.getTrumpSuit() != null && card.getSuit() == mode.getTrumpSuit();
         }
 
-        public boolean isTrump(GameMode mode) {
-            if (isJack())
-                return true;
-            return mode.trumpSuit != null && mode.trumpSuit == this.suit;
-        }
-
-        public int getJackPower() {
-            return switch (this.suit) {
+        public int getJackPower(Card card) {
+            return switch (card.getSuit()) {
                 case KARO -> 1;
                 case HERZ -> 2;
                 case PIK -> 3;
@@ -66,62 +60,41 @@ public class SkatSpiel {
             };
         }
 
-        @Override
-        public String toString() {
-            return suit.name + " " + rank.label;
-        }
-    }
-
-    public enum GameType {
-        FARBE, GRAND
-    }
-
-    public static class GameMode {
-        final GameType type;
-        final Suit trumpSuit; // null bei Grand
-
-        GameMode(GameType type, Suit trumpSuit) {
-            this.type = type;
-            this.trumpSuit = trumpSuit;
-        }
-    }
-
-    public static class Player {
-        final String name;
-        final boolean isHuman;
-        final List<Card> hand = new ArrayList<>();
-        final List<Card> tricksWon = new ArrayList<>();
-
-        Player(String name, boolean isHuman) {
-            this.name = name;
-            this.isHuman = isHuman;
+        public int getSkatOrder(Card card) {
+            return switch (card.getRank()) {
+                case SIEBEN -> 0;
+                case ACHT -> 1;
+                case NEUN -> 2;
+                case DAME -> 3;
+                case KOENIG -> 4;
+                case ZEHN -> 5;
+                case ASS -> 6;
+                case BUBE -> 7;
+                default -> 0;
+            };
         }
 
-        public void sortHand(GameMode mode) {
-            hand.sort((c1, c2) -> {
-                boolean t1 = c1.isTrump(mode);
-                boolean t2 = c2.isTrump(mode);
+        public void sortHandForSkat(SkatGameMode mode) {
+            hand.sortWithComparator((c1, c2) -> {
+                boolean t1 = isTrump(c1, mode);
+                boolean t2 = isTrump(c2, mode);
 
-                if (t1 && !t2)
-                    return -1;
-                if (!t1 && t2)
-                    return 1;
+                if (t1 && !t2) return -1;
+                if (!t1 && t2) return 1;
 
                 if (t1 && t2) {
-                    if (c1.isJack() && c2.isJack()) {
-                        return Integer.compare(c2.getJackPower(), c1.getJackPower());
+                    if (c1.getRank() == Rank.BUBE && c2.getRank() == Rank.BUBE) {
+                        return Integer.compare(getJackPower(c2), getJackPower(c1));
                     }
-                    if (c1.isJack())
-                        return -1;
-                    if (c2.isJack())
-                        return 1;
-                    return Integer.compare(c2.rank.orderInSuit, c1.rank.orderInSuit);
+                    if (c1.getRank() == Rank.BUBE) return -1;
+                    if (c2.getRank() == Rank.BUBE) return 1;
+                    return Integer.compare(getSkatOrder(c2), getSkatOrder(c1));
                 }
 
-                if (c1.suit != c2.suit) {
-                    return Integer.compare(c2.suit.ordinal(), c1.suit.ordinal());
+                if (c1.getSuit() != c2.getSuit()) {
+                    return Integer.compare(c2.getSuit().ordinal(), c1.getSuit().ordinal());
                 }
-                return Integer.compare(c2.rank.orderInSuit, c1.rank.orderInSuit);
+                return Integer.compare(getSkatOrder(c2), getSkatOrder(c1));
             });
         }
     }
@@ -130,38 +103,62 @@ public class SkatSpiel {
             18, 20, 22, 23, 24, 27, 30, 33, 35, 36, 40, 44, 45, 46, 48, 50, 54, 55, 60
     };
 
-    private final Player[] players = new Player[3];
-    private final List<Card> skat = new ArrayList<>();
+    private final SkatPlayer[] players = new SkatPlayer[3];
+    private final List<Card> skatCards = new ArrayList<>();
     private final Scanner scanner = new Scanner(System.in);
+    private boolean gameOver = false;
+    private String outcome = "Noch nicht gespielt";
 
-    public SkatSpiel() {
-        players[0] = new Player("Du", true);
-        players[1] = new Player("Mittelhand (Bot 1)", false);
-        players[2] = new Player("Hinterhand (Bot 2)", false);
+    public SkatGame() {
+        players[0] = new SkatPlayer("Spieler (Du)", true);
+        players[1] = new SkatPlayer("Mittelhand (Bot 1)", false);
+        players[2] = new SkatPlayer("Hinterhand (Bot 2)", false);
     }
 
+    @Override
     public void start() {
-        dealCards();
-        System.out.println("=== WILLKOMMEN BEIM SKAT ===");
+        Deck deck = new Deck();
+        deck.initializeSkat32Deck();
+        deck.shuffleFisherYates();
+
+        for (SkatPlayer p : players) {
+            p.getHand().clear();
+            p.getTricksWon().clear();
+        }
+        skatCards.clear();
+
+        try {
+            for (SkatPlayer p : players) for (int i = 0; i < 3; i++) p.getHand().addCard(deck.drawCard());
+            skatCards.add(deck.drawCard());
+            skatCards.add(deck.drawCard());
+            for (SkatPlayer p : players) for (int i = 0; i < 4; i++) p.getHand().addCard(deck.drawCard());
+            for (SkatPlayer p : players) for (int i = 0; i < 3; i++) p.getHand().addCard(deck.drawCard());
+        } catch (EmptyDeckException e) {
+            throw new IllegalStateException("Skat-Deck unvollständig", e);
+        }
+
+        SkatGameMode neutral = new SkatGameMode(GameType.GRAND, null);
+        for (SkatPlayer p : players) p.sortHandForSkat(neutral);
+
+        System.out.println("\n=== OFFIZIELLES SKATSPIEL GESTARTET ===");
         printHand(players[0]);
 
         // Phase 1: Reizen
-        int declarerIndex = runBidding();
-        Player declarer = players[declarerIndex];
-        System.out.println("\n-> Alleinspieler ist: " + declarer.name);
+        int declarerIdx = runBidding();
+        SkatPlayer declarer = players[declarerIdx];
+        System.out.println("\n>> Alleinspieler ist: " + declarer.getName());
 
-        // Phase 2: Skat aufnehmen & drücken
+        // Phase 2: Skat drücken
         handleSkat(declarer);
 
-        // Phase 3: Spielansage
-        GameMode mode = chooseGameMode(declarer);
-        System.out.println("\nAngesagtes Spiel: " + (mode.type == GameType.GRAND ? "Grand" : mode.trumpSuit.name));
+        // Phase 3: Spielart wählen
+        SkatGameMode mode = chooseGameMode(declarer);
+        System.out.println("Angesagtes Spiel: " + (mode.getType() == GameType.GRAND ? "Grand" : mode.getTrumpSuit().getName()));
 
-        for (Player p : players)
-            p.sortHand(mode);
+        for (SkatPlayer p : players) p.sortHandForSkat(mode);
 
-        // Phase 4: Stiche spielen (10 Runden)
-        int leader = 0; // Vorhand spielt zum 1. Stich aus
+        // Phase 4: Stiche spielen
+        int leader = 0;
         for (int trick = 1; trick <= 10; trick++) {
             System.out.println("\n--- Stich " + trick + " von 10 ---");
             leader = playTrick(leader, mode);
@@ -169,310 +166,233 @@ public class SkatSpiel {
 
         // Phase 5: Auswertung
         evaluateGame(declarer);
+        this.gameOver = true;
     }
 
-    private void dealCards() {
-        List<Card> deck = new ArrayList<>();
-        for (Suit s : Suit.values()) {
-            for (Rank r : Rank.values()) {
-                deck.add(new Card(s, r));
-            }
-        }
-        Collections.shuffle(deck);
-
-        int idx = 0;
-        // 3 Karten an jeden
-        for (Player p : players)
-            for (int i = 0; i < 3; i++)
-                p.hand.add(deck.get(idx++));
-        // 2 in den Skat
-        skat.add(deck.get(idx++));
-        skat.add(deck.get(idx++));
-        // 4 Karten an jeden
-        for (Player p : players)
-            for (int i = 0; i < 4; i++)
-                p.hand.add(deck.get(idx++));
-        // 3 Karten an jeden
-        for (Player p : players)
-            for (int i = 0; i < 3; i++)
-                p.hand.add(deck.get(idx++));
-
-        GameMode neutralMode = new GameMode(GameType.GRAND, null);
-        for (Player p : players)
-            p.sortHand(neutralMode);
-    }
+    @Override
+    public void processTurn() {}
 
     private int runBidding() {
-        System.out.println("\n--- REIZEN ---");
-        int winner = 0; // Standardmäßig gewinnt Vorhand, wenn alle passen
-        int bidIndex = 0;
-
-        // Runde 1: Mittelhand fragt, Vorhand antwortet
-        winner = duelBidding(1, 0, bidIndex);
-
-        // Runde 2: Hinterhand fragt Sieger aus Runde 1
-        int challenger = 2;
-        if (winner == challenger)
-            challenger = 1; // Falls Hinterhand schon dran war
-        winner = duelBidding(2, winner, bidIndex);
-
+        System.out.println("\n--- PHASE 1: DAS REIZEN ---");
+        int winner = duelBidding(1, 0, 0);
+        winner = duelBidding(2, winner, 0);
         return winner;
     }
 
-    private int duelBidding(int askerIdx, int responderIdx, int startBidIdx) {
-        Player asker = players[askerIdx];
-        Player responder = players[responderIdx];
-        int currentBidIdx = startBidIdx;
+    private int duelBidding(int askerIdx, int respIdx, int bidIdx) {
+        SkatPlayer asker = players[askerIdx];
+        SkatPlayer resp = players[respIdx];
+        int cur = bidIdx;
 
-        while (currentBidIdx < BID_VALUES.length) {
-            int value = BID_VALUES[currentBidIdx];
-
-            // Frager entscheidet zu bieten
-            boolean askerWants = askBid(asker, value);
-            if (!askerWants) {
-                System.out.println(asker.name + " passt.");
-                return responderIdx;
+        while (cur < BID_VALUES.length) {
+            int val = BID_VALUES[cur];
+            boolean ask = asker.isHuman() ? promptYesNo(asker.getName() + ": Reizen auf " + val + "?") : val <= 22;
+            if (!ask) {
+                System.out.println(asker.getName() + " passt.");
+                return respIdx;
             }
-            System.out.println(asker.name + " reizt " + value);
+            System.out.println(asker.getName() + " bietet " + val);
 
-            // Antwortender entscheidet zu halten
-            boolean responderHolds = holdBid(responder, value);
-            if (!responderHolds) {
-                System.out.println(responder.name + " passt.");
+            boolean hold = resp.isHuman() ? promptYesNo(resp.getName() + ": Halten von " + val + "?") : val <= 20;
+            if (!hold) {
+                System.out.println(resp.getName() + " passt.");
                 return askerIdx;
             }
-            System.out.println(responder.name + " hält " + value);
-
-            currentBidIdx++;
+            System.out.println(resp.getName() + " hält " + val);
+            cur++;
         }
-        return responderIdx;
+        return respIdx;
     }
 
-    private boolean askBid(Player p, int value) {
-        if (!p.isHuman)
-            return value <= 22; // Einfache Bot-Schwelle
-        System.out.print("Reizen auf " + value + "? (j/n): ");
-        return scanner.nextLine().trim().equalsIgnoreCase("j");
-    }
-
-    private boolean holdBid(Player p, int value) {
-        if (!p.isHuman)
-            return value <= 20;
-        System.out.print("Möchtest du " + value + " halten? (j/n): ");
-        return scanner.nextLine().trim().equalsIgnoreCase("j");
-    }
-
-    private void handleSkat(Player declarer) {
-        if (declarer.isHuman) {
+    private void handleSkat(SkatPlayer declarer) {
+        if (declarer.isHuman()) {
             System.out.println("\nDu nimmst den Skat auf:");
-            for (Card c : skat)
-                System.out.println("  + " + c);
-            declarer.hand.addAll(skat);
-            skat.clear();
+            for (Card c : skatCards) System.out.println("  + " + c);
+            for (Card c : skatCards) declarer.getHand().addCard(c);
+            skatCards.clear();
 
             for (int i = 0; i < 2; i++) {
-                printIndexedHand(declarer);
-                System.out.print("Wähle Karte " + (i + 1) + " zum Drücken in den Skat (Nummer): ");
-                int choice = readCardIndex(declarer.hand.size());
-                skat.add(declarer.hand.remove(choice));
+                printHand(declarer);
+                System.out.print("Wähle Karte " + (i + 1) + " zum Drücken in den Skat (1-" + declarer.getHand().size() + "): ");
+                int choice = readIndex(declarer.getHand().size());
+                skatCards.add(declarer.getHand().removeCard(choice));
             }
         } else {
-            // Bot legt die zwei schwächsten/punktärmsten Karten
-            declarer.hand.addAll(skat);
-            skat.clear();
-            declarer.hand.sort(Comparator.comparingInt(c -> c.rank.points));
-            skat.add(declarer.hand.remove(0));
-            skat.add(declarer.hand.remove(0));
-            System.out.println(declarer.name + " hat den Skat aufgenommen und gedrückt.");
+            for (Card c : skatCards) declarer.getHand().addCard(c);
+            skatCards.clear();
+            declarer.getHand().sortWithComparator(Comparator.comparingInt(this::getCardEyes));
+            skatCards.add(declarer.getHand().removeCard(0));
+            skatCards.add(declarer.getHand().removeCard(0));
+            System.out.println(declarer.getName() + " hat den Skat aufgenommen und verdeckt gedrückt.");
         }
     }
 
-    private GameMode chooseGameMode(Player declarer) {
-        if (declarer.isHuman) {
-            System.out.println("\nWähle die Spielart:");
-            System.out.println("1: Karo | 2: Herz | 3: Pik | 4: Kreuz | 5: Grand");
-            while (true) {
-                System.out.print("Auswahl (1-5): ");
-                String input = scanner.nextLine().trim();
-                switch (input) {
-                    case "1":
-                        return new GameMode(GameType.FARBE, Suit.KARO);
-                    case "2":
-                        return new GameMode(GameType.FARBE, Suit.HERZ);
-                    case "3":
-                        return new GameMode(GameType.FARBE, Suit.PIK);
-                    case "4":
-                        return new GameMode(GameType.FARBE, Suit.KREUZ);
-                    case "5":
-                        return new GameMode(GameType.GRAND, null);
-                }
-            }
-        } else {
-            return new GameMode(GameType.FARBE, Suit.KREUZ); // Bot-Standardwahl
+    private SkatGameMode chooseGameMode(SkatPlayer declarer) {
+        if (declarer.isHuman()) {
+            System.out.println("\nWähle Spielart: 1: Karo | 2: Herz | 3: Pik | 4: Kreuz | 5: Grand");
+            int sel = readIndex(5) + 1;
+            return switch (sel) {
+                case 1 -> new SkatGameMode(GameType.FARBE, Suit.KARO);
+                case 2 -> new SkatGameMode(GameType.FARBE, Suit.HERZ);
+                case 3 -> new SkatGameMode(GameType.FARBE, Suit.PIK);
+                case 4 -> new SkatGameMode(GameType.FARBE, Suit.KREUZ);
+                default -> new SkatGameMode(GameType.GRAND, null);
+            };
         }
+        return new SkatGameMode(GameType.FARBE, Suit.KREUZ);
     }
 
-    private int playTrick(int leaderIdx, GameMode mode) {
-        Card[] playedCards = new Card[3];
-        int current = leaderIdx;
+    private int playTrick(int leaderIdx, SkatGameMode mode) {
+        Card[] trick = new Card[3];
+        int cur = leaderIdx;
 
         for (int i = 0; i < 3; i++) {
-            Player p = players[current];
-            Card card;
-            if (p.isHuman) {
-                card = humanPlayCard(p, playedCards[leaderIdx], mode);
+            SkatPlayer p = players[cur];
+            Card chosen;
+            if (p.isHuman()) {
+                printHand(p);
+                while (true) {
+                    System.out.print("Karte legen (1-" + p.getHand().size() + "): ");
+                    int idx = readIndex(p.getHand().size());
+                    Card c = p.getHand().getCard(idx);
+                    if (isValidMove(p, c, trick[leaderIdx], mode)) {
+                        chosen = p.getHand().removeCard(idx);
+                        break;
+                    }
+                    System.out.println("Ungültig! Farbbedienpflicht beachten.");
+                }
             } else {
-                card = botPlayCard(p, playedCards[leaderIdx], mode);
+                chosen = botChooseCard(p, trick[leaderIdx], mode);
             }
-            playedCards[current] = card;
-            System.out.println(p.name + " spielt: " + card);
-            current = (current + 1) % 3;
+            trick[cur] = chosen;
+            System.out.println(p.getName() + " legt: " + chosen);
+            cur = (cur + 1) % 3;
         }
 
-        int winnerIdx = evaluateTrick(playedCards, leaderIdx, mode);
-        Player winner = players[winnerIdx];
-        System.out.println("-> " + winner.name + " gewinnt den Stich!");
-
-        for (Card c : playedCards)
-            winner.tricksWon.add(c);
+        int winnerIdx = evalTrick(trick, leaderIdx, mode);
+        System.out.println("-> " + players[winnerIdx].getName() + " gewinnt den Stich!");
+        for (Card c : trick) players[winnerIdx].getTricksWon().add(c);
         return winnerIdx;
     }
 
-    private Card humanPlayCard(Player p, Card leadCard, GameMode mode) {
-        printIndexedHand(p);
-        while (true) {
-            System.out.print("Welche Karte möchtest du spielen? (Nummer): ");
-            int idx = readCardIndex(p.hand.size());
-            Card candidate = p.hand.get(idx);
-            if (isValidMove(p, candidate, leadCard, mode)) {
-                return p.hand.remove(idx);
-            }
-            System.out.println("Ungültiger Zug! Du musst bedienen.");
-        }
-    }
-
-    private Card botPlayCard(Player p, Card leadCard, GameMode mode) {
-        for (int i = 0; i < p.hand.size(); i++) {
-            Card c = p.hand.get(i);
-            if (isValidMove(p, c, leadCard, mode)) {
-                return p.hand.remove(i);
+    private Card botChooseCard(SkatPlayer p, Card lead, SkatGameMode mode) {
+        for (int i = 0; i < p.getHand().size(); i++) {
+            Card c = p.getHand().getCard(i);
+            if (isValidMove(p, c, lead, mode)) {
+                return p.getHand().removeCard(i);
             }
         }
-        return p.hand.remove(0);
+        return p.getHand().removeCard(0);
     }
 
-    private boolean isValidMove(Player p, Card candidate, Card leadCard, GameMode mode) {
-        if (leadCard == null)
-            return true; // Erste Karte im Stich ist immer frei
+    private boolean isValidMove(SkatPlayer p, Card cand, Card lead, SkatGameMode mode) {
+        if (lead == null) return true;
+        boolean leadTrump = p.isTrump(lead, mode);
+        boolean candTrump = p.isTrump(cand, mode);
 
-        boolean leadIsTrump = leadCard.isTrump(mode);
-        boolean candidateIsTrump = candidate.isTrump(mode);
-
-        if (leadIsTrump) {
-            boolean hasTrump = p.hand.stream().anyMatch(c -> c.isTrump(mode));
-            if (hasTrump)
-                return candidateIsTrump;
-            return true;
+        if (leadTrump) {
+            boolean hasTrump = p.getHand().getCards().stream().anyMatch(c -> p.isTrump(c, mode));
+            return !hasTrump || candTrump;
         } else {
-            boolean hasSameSuit = p.hand.stream().anyMatch(c -> !c.isTrump(mode) && c.suit == leadCard.suit);
-            if (hasSameSuit) {
-                return !candidateIsTrump && candidate.suit == leadCard.suit;
+            boolean hasSuit = p.getHand().getCards().stream().anyMatch(c -> !p.isTrump(c, mode) && c.getSuit() == lead.getSuit());
+            if (hasSuit) {
+                return !candTrump && cand.getSuit() == lead.getSuit();
             }
             return true;
         }
     }
 
-    private int evaluateTrick(Card[] cards, int leaderIdx, GameMode mode) {
-        int bestIdx = leaderIdx;
-        Card bestCard = cards[leaderIdx];
-
+    private int evalTrick(Card[] trick, int leaderIdx, SkatGameMode mode) {
+        int best = leaderIdx;
         for (int i = 1; i < 3; i++) {
-            int currentIdx = (leaderIdx + i) % 3;
-            Card challenger = cards[currentIdx];
-
-            if (isHigher(challenger, bestCard, mode)) {
-                bestCard = challenger;
-                bestIdx = currentIdx;
+            int ch = (leaderIdx + i) % 3;
+            if (isHigher(trick[ch], trick[best], mode)) {
+                best = ch;
             }
         }
-        return bestIdx;
+        return best;
     }
 
-    private boolean isHigher(Card challenger, Card currentBest, GameMode mode) {
-        boolean cTrump = challenger.isTrump(mode);
-        boolean bTrump = currentBest.isTrump(mode);
+    private boolean isHigher(Card cand, Card cur, SkatGameMode mode) {
+        SkatPlayer dummy = players[0];
+        boolean cT = dummy.isTrump(cand, mode);
+        boolean bT = dummy.isTrump(cur, mode);
 
-        if (cTrump && !bTrump)
-            return true;
-        if (!cTrump && bTrump)
-            return false;
+        if (cT && !bT) return true;
+        if (!cT && bT) return false;
 
-        if (cTrump && bTrump) {
-            if (challenger.isJack() && currentBest.isJack()) {
-                return challenger.getJackPower() > currentBest.getJackPower();
+        if (cT && bT) {
+            if (cand.getRank() == Rank.BUBE && cur.getRank() == Rank.BUBE) {
+                return dummy.getJackPower(cand) > dummy.getJackPower(cur);
             }
-            if (challenger.isJack())
-                return true;
-            if (currentBest.isJack())
-                return false;
-            return challenger.rank.orderInSuit > currentBest.rank.orderInSuit;
+            if (cand.getRank() == Rank.BUBE) return true;
+            if (cur.getRank() == Rank.BUBE) return false;
+            return dummy.getSkatOrder(cand) > dummy.getSkatOrder(cur);
         }
 
-        // Beide Fehlkarten: sticht nur bei gleicher Farbe und höherem Rang
-        if (challenger.suit == currentBest.suit) {
-            return challenger.rank.orderInSuit > currentBest.rank.orderInSuit;
+        if (cand.getSuit() == cur.getSuit()) {
+            return dummy.getSkatOrder(cand) > dummy.getSkatOrder(cur);
         }
         return false;
     }
 
-    private void evaluateGame(Player declarer) {
-        // Skat-Karten gehören am Ende zum Stichkonto des Alleinspielers
-        declarer.tricksWon.addAll(skat);
-
-        int declarerPoints = 0;
-        for (Card c : declarer.tricksWon)
-            declarerPoints += c.rank.points;
-        int defendersPoints = 120 - declarerPoints;
+    private void evaluateGame(SkatPlayer declarer) {
+        declarer.getTricksWon().addAll(skatCards);
+        int declarerEyes = declarer.getTricksWon().stream().mapToInt(this::getCardEyes).sum();
+        int defenderEyes = 120 - declarerEyes;
 
         System.out.println("\n=================================");
-        System.out.println("ERGEBNIS:");
-        System.out.println(declarer.name + " (Alleinspieler): " + declarerPoints + " Augen");
-        System.out.println("Gegenspieler: " + defendersPoints + " Augen");
+        System.out.println("SKAT-ENDABRECHNUNG:");
+        System.out.println(declarer.getName() + " (Alleinspieler): " + declarerEyes + " Augen");
+        System.out.println("Verteidiger: " + defenderEyes + " Augen");
 
-        if (declarerPoints >= 61) {
-            System.out.println("-> Alleinspieler " + declarer.name + " hat GEWONNEN (min. 61 Augen)!");
+        if (declarerEyes >= 61) {
+            outcome = "Alleinspieler " + declarer.getName() + " hat GEWONNEN (" + declarerEyes + " Augen)!";
+            declarer.addScore(50);
         } else {
-            System.out.println("-> Alleinspieler " + declarer.name + " hat VERLOREN!");
+            outcome = "Alleinspieler " + declarer.getName() + " hat VERLOREN (" + declarerEyes + " Augen)!";
         }
+        System.out.println("-> " + outcome);
         System.out.println("=================================");
     }
 
-    private void printHand(Player p) {
-        System.out.println("\nDeine Handkarten:");
-        for (Card c : p.hand)
-            System.out.println("  • " + c);
+    public int getCardEyes(Card c) {
+        return switch (c.getRank()) {
+            case ASS -> 11;
+            case ZEHN -> 10;
+            case KOENIG -> 4;
+            case DAME -> 3;
+            case BUBE -> 2;
+            default -> 0;
+        };
     }
 
-    private void printIndexedHand(Player p) {
-        System.out.println("\nVerfügbare Handkarten:");
-        for (int i = 0; i < p.hand.size(); i++) {
-            System.out.println("  [" + (i + 1) + "] " + p.hand.get(i));
+    private void printHand(SkatPlayer p) {
+        System.out.println("\nDeine Handkarten:");
+        for (int i = 0; i < p.getHand().size(); i++) {
+            System.out.println("  [" + (i + 1) + "] " + p.getHand().getCard(i));
         }
     }
 
-    private int readCardIndex(int max) {
+    private int readIndex(int max) {
         while (true) {
             try {
                 int val = Integer.parseInt(scanner.nextLine().trim());
-                if (val >= 1 && val <= max)
-                    return val - 1;
-            } catch (NumberFormatException ignored) {
-            }
-            System.out.print("Ungültige Eingabe. Wähle eine Zahl zwischen 1 und " + max + ": ");
+                if (val >= 1 && val <= max) return val - 1;
+            } catch (Exception ignored) {}
+            System.out.print("Bitte Zahl von 1 bis " + max + " eingeben: ");
         }
     }
 
+    private boolean promptYesNo(String msg) {
+        System.out.print(msg + " (j/n): ");
+        return scanner.nextLine().trim().equalsIgnoreCase("j");
+    }
+
+    @Override public boolean isGameOver() { return gameOver; }
+    @Override public String getResultSummary() { return outcome; }
+
     public static void main(String[] args) {
-        new SkatSpiel().start();
+        new SkatGame().start();
     }
 }
